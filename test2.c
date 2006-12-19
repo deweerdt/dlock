@@ -22,11 +22,11 @@ int main()
 {
 	pthread_t t;
 
-	MUTEX_INIT(&mutexA);
-	MUTEX_INIT(&mutexB);
-	MUTEX_INIT(&mutexC);
-	MUTEX_INIT(&mutexD);
-	MUTEX_INIT(&mutexE);
+	MUTEX_INIT(&mutexA, 0);
+	MUTEX_INIT(&mutexB, 0);
+	MUTEX_INIT(&mutexC, 0);
+	MUTEX_INIT(&mutexD, 0);
+	MUTEX_INIT(&mutexE, 0);
 
 	pthread_create(&t, NULL, f, NULL);
 #if 1
@@ -53,6 +53,6 @@ int main()
 #endif
 	pthread_join(t, NULL);
 
-	ordering_dump();
+	dlock_dump();
 	return 1;
 }
