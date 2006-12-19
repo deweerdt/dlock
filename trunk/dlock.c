@@ -21,10 +21,27 @@ typedef void (*sighandler_t)(int);
 #define DLOCKprintf(fmt, args...)
 #endif
 
+#undef ASSERT
+#define ASSERT(s, e, d) {						\
+	if (!(e)) {							\
+		fprintf(stderr, "DLOCK ASSERT: %s %s %s:%d\n%s\n",	\
+			#e, s, __FILE__, __LINE__,			\
+			(d)->last_used_bt);				\
+		bt();							\
+		fflush(stderr);						\
+		abort();						\
+	}								\
+}
 
-#ifdef DLOCK_ORDERING
+void dlock_mutex_init(pthread_mutex_t *mutex, void *v, const char *mutex_name, char *fn, int ln);
+void dlock_mutex_lock(pthread_mutex_t *mutex, unsigned int tid);
+void dlock_mutex_unlock(pthread_mutex_t *mutex, unsigned int tid);
+void dlock_dump();
+void dlock_gen_dot();
+
 
 static void *libpthread_handle = NULL;
+static FILE *dlock_log_file;
 
 static int (*o_pthread_mutex_init)(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr);
 static int (*o_pthread_mutex_lock)(pthread_mutex_t *);
@@ -76,45 +93,45 @@ static unsigned long calibrating_loop()
 	return mhz;
 }
 
-inline int ___pthread_mutex_destroy(pthread_mutex_t *mutex)
+int ___pthread_mutex_destroy(pthread_mutex_t *mutex)
 {
 	DLOCKprintf("destroying %d %p\n", (int)pthread_self(), mutex);
 	return pthread_mutex_destroy(mutex);
 }
 
-inline int ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *mutex_name, char *fn, int ln)
+int ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *mutex_name, char *fn, int ln)
 {
 	int ret;
 	DLOCKprintf("initing %d %p %s\n", (int)pthread_self(), mutex, mutex_name);
 	ret = o_pthread_mutex_init(mutex, v);	
-	ordering_init(mutex, v, mutex_name, fn, ln);
+	dlock_mutex_init(mutex, v, mutex_name, fn, ln);
 	return ret;
 }
 
-inline int ___pthread_mutex_lock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
+int ___pthread_mutex_lock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
 {
 	int ret;
 	DLOCKprintf("locking %d %p %s_%s_%d\n", (int)pthread_self(), mutex, lname, fn, ln);
 	ret = o_pthread_mutex_lock(mutex);
-	ordering_lock(mutex, (int)pthread_self());
+	dlock_mutex_lock(mutex, (int)pthread_self());
 	return ret;
 }
 
-inline int ___pthread_mutex_try_lock(pthread_mutex_t *mutex)
+int ___pthread_mutex_try_lock(pthread_mutex_t *mutex)
 {
 	DLOCKprintf("try locking %d %p\n", (int)pthread_self(), mutex);
 	return o_pthread_mutex_trylock(mutex);
 }
 
-inline int ___pthread_mutex_unlock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
+int ___pthread_mutex_unlock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
 {
 	DLOCKprintf("unlocking %d %p %s_%s_%d\n", (int)pthread_self(), mutex, lname, fn, ln);
-	ordering_unlock(mutex, (int)pthread_self());
+	dlock_mutex_unlock(mutex, (int)pthread_self());
 	return o_pthread_mutex_unlock(mutex);
 }
 
 #define HIJACK(a, x, y) if (!(o_##x = dlsym(a , y))) {\
-			   fprintf(stderr, "symbol %s() not found, exiting\n", #y);\
+			   fprintf(dlock_log_file, "symbol %s() not found, exiting\n", #y);\
                 	   exit(-1);\
                         }
 
@@ -122,12 +139,12 @@ int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr)
 {
 	char buf[16];
 	sprintf(buf, "%p", mutex);
-	ordering_init(mutex, (void *)attr, buf, "?", 0);
+	dlock_mutex_init(mutex, (void *)attr, buf, "?", 0);
 	return o_pthread_mutex_init(mutex, attr);
 }
 int pthread_mutex_lock(pthread_mutex_t *mutex)
 {
-	ordering_lock(mutex, pthread_self());
+	dlock_mutex_lock(mutex, pthread_self());
 	return o_pthread_mutex_lock(mutex);
 }
 int pthread_mutex_trylock(pthread_mutex_t *mutex)
@@ -136,7 +153,7 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex)
 }
 int pthread_mutex_unlock(pthread_mutex_t *mutex)
 {
-	ordering_unlock(mutex, pthread_self());
+	dlock_mutex_unlock(mutex, pthread_self());
 	return o_pthread_mutex_unlock(mutex);
 }
 
@@ -144,7 +161,7 @@ void dlock_hijack_libpthread()
 {
 	if ( (libpthread_handle = dlopen("libpthread.so", RTLD_NOW)) == NULL)
 		if ( (libpthread_handle = dlopen("libpthread.so.0", RTLD_NOW)) == NULL) {
-			fprintf(stderr, "error loading libpthread!\n");
+			fprintf(dlock_log_file, "error loading libpthread!\n");
 			exit(-1);
 		}
 	HIJACK(libpthread_handle, pthread_mutex_init, "pthread_mutex_init");
@@ -171,26 +188,30 @@ void _init()
 
 	if (flags & DLOCK_INIT_CALIBRATE)
 		machine_mhz = calibrating_loop();
+
 	if (flags & DLOCK_INIT_HANDLE_USR1)
-		signal(SIGUSR1, (sighandler_t)ordering_dump);
-	if (flags & DLOCK_INIT_HANDLE_USR2)
-		signal(SIGUSR2, (sighandler_t)ordering_dump);
-				
+		signal(SIGUSR1, (sighandler_t) dlock_dump);
+
+	if (flags & DLOCK_REGISTER_ATEXIT)
+		atexit(dlock_dump);
+
+	dlock_log_file = stderr;
+	if (flags & DLOCK_LOG_FILE) {
+		char *log_file = getenv("DLOCK_LOG_FILE");
+		FILE *f;
+
+		f = fopen(log_file, "w+");
+		if (!f)
+			fprintf(dlock_log_file,
+				"dlock: Cannot open %s file, falling back to stderr (remember to set DLOCK_LOG_FILE)\n",
+				log_file ? log_file : "<null>");
+		else
+			dlock_log_file = f;
+	}
+
 	dlock_hijack_libpthread();
-	fprintf(stderr, "libdlock loaded\n");
 }
 
-#undef ASSERT
-#define ASSERT(s, e, d) {						\
-	if (!(e)) {							\
-		fprintf(stderr, "DLOCK ASSERT: %s %s %s:%d\n%s\n",	\
-			#e, s, __FILE__, __LINE__,			\
-			(d)->last_used_bt);				\
-		bt();							\
-		fflush(stdout);						\
-		abort();						\
-	}								\
-}
 
 typedef enum {
 	LOCKED,
@@ -230,7 +251,7 @@ struct mutex_desc mutex_descs[MAX_KNOWN_MUTEXES];
 /* current index in the mutex_descs array */
 static unsigned int md_index = 0;
 /* Big DLOCK lock. todo: find a more fine grained locking scheme*/
-static pthread_mutex_t ordering_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t dlock_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* linked list containing the different threads running
    in the guest program */
 static LIST_HEAD(llisthead, thread_list) lhead;
@@ -248,6 +269,7 @@ static struct thread_list *find_list(unsigned int tid)
 			break;
 	return np;
 }
+
 static void create_queue(unsigned int tid)
 {
 	struct thread_list *t;
@@ -257,11 +279,11 @@ static void create_queue(unsigned int tid)
 		t = malloc(sizeof(struct thread_list));
 		LIST_INSERT_HEAD(&lhead, t, entries);
 	}
-	o_pthread_mutex_lock(&ordering_mutex);
+	o_pthread_mutex_lock(&dlock_mutex);
 	t->index = 0;
 	memset(t->seq, 0, sizeof(t->seq));
 	t->tid = tid;
-	o_pthread_mutex_unlock(&ordering_mutex);
+	o_pthread_mutex_unlock(&dlock_mutex);
 }
 
 static void append_lock(unsigned int tid, pthread_mutex_t *mutex) 
@@ -269,12 +291,12 @@ static void append_lock(unsigned int tid, pthread_mutex_t *mutex)
 	struct thread_list *t;
 
 	t = find_list(tid);
-	o_pthread_mutex_lock(&ordering_mutex);
+	o_pthread_mutex_lock(&dlock_mutex);
 	t->seq[t->index].mutex = mutex;
 	t->seq[t->index].mtime = arch_get_ticks();
 	t->seq[t->index].action = LOCKED;
 	t->index++;
-	o_pthread_mutex_unlock(&ordering_mutex);
+	o_pthread_mutex_unlock(&dlock_mutex);
 }
 
 static int append_unlock(unsigned int tid, pthread_mutex_t *mutex) 
@@ -283,18 +305,18 @@ static int append_unlock(unsigned int tid, pthread_mutex_t *mutex)
 	int ret;
 
 	t = find_list(tid);
-	o_pthread_mutex_lock(&ordering_mutex);
+	o_pthread_mutex_lock(&dlock_mutex);
 	t->seq[t->index].mutex = mutex;
 	t->seq[t->index].mtime = arch_get_ticks();
 	t->seq[t->index].action = UNLOCKED;
 	t->index++;
-	/* loop is closed? */
+	/* is loop closed? */
 	ret = t->seq[0].mutex == mutex;
-	o_pthread_mutex_unlock(&ordering_mutex);
+	o_pthread_mutex_unlock(&dlock_mutex);
 	return ret;
 }
 
-void ordering_init(pthread_mutex_t * mutex, void *v,
+void dlock_mutex_init(pthread_mutex_t * mutex, void *v,
 		   const char *mutex_name, char *fn, int ln)
 {
 	int skip = 0;
@@ -303,16 +325,16 @@ void ordering_init(pthread_mutex_t * mutex, void *v,
 	if (mutex_name[0] == '&') {
 		skip = 1;
 	}
-	o_pthread_mutex_lock(&ordering_mutex);
+	o_pthread_mutex_lock(&dlock_mutex);
 	mutex_descs[md_index].mutex = mutex;
 	strncpy(mutex_descs[md_index].mutex_name, mutex_name + skip,
 		MAX_MUTEX_NAME);
 	strncpy(mutex_descs[md_index].fn_name, fn, MAX_FN_NAME);
 	mutex_descs[md_index].ln = ln;
 	md_index++;
-	o_pthread_mutex_unlock(&ordering_mutex);
+	o_pthread_mutex_unlock(&dlock_mutex);
 }
-void ordering_lock(pthread_mutex_t *mutex, unsigned int tid)
+void dlock_mutex_lock(pthread_mutex_t *mutex, unsigned int tid)
 {
 	if (!find_list(tid)) {
 		create_queue(tid);
@@ -344,7 +366,7 @@ static void register_sequence(unsigned int tid)
 	unsigned long long mtime;
 
 	t = find_list(tid);
-	o_pthread_mutex_lock(&ordering_mutex);
+	o_pthread_mutex_lock(&dlock_mutex);
 	memcpy(sequences[atomic_read(&index_sequences)].seq, t->seq, 
 		sizeof(t->seq));
 	sequences[atomic_read(&index_sequences)].cksum = cksum(tid);
@@ -353,7 +375,7 @@ static void register_sequence(unsigned int tid)
 	sequences[atomic_read(&index_sequences)].times = 1;
 	sequences[atomic_read(&index_sequences)].length = t->index;
 	atomic_inc(&index_sequences);
-	o_pthread_mutex_unlock(&ordering_mutex);
+	o_pthread_mutex_unlock(&dlock_mutex);
 	return;
 }
 
@@ -385,7 +407,7 @@ static int is_registered_sequence(unsigned int tid) {
 	return 0;
 }
 
-void ordering_unlock(pthread_mutex_t *mutex, unsigned int tid)
+void dlock_mutex_unlock(pthread_mutex_t *mutex, unsigned int tid)
 {
 	if (!find_list(tid)) {
 		assert(0);
@@ -417,64 +439,79 @@ static char *get_mutex_name(pthread_mutex_t * m)
 	return NULL;
 }
 
-void ordering_dump()
+void dlock_dump()
 {
 	int i, j;
 
-	o_pthread_mutex_lock(&ordering_mutex);
-	printf
-	    ("********************************************************************************\n");
-	printf("Registered lock sequences:\n");
+	o_pthread_mutex_lock(&dlock_mutex);
+
+	fprintf(dlock_log_file,
+	     "********************************************************************************\n");
+	fprintf(dlock_log_file, "Registered lock sequences:\n");
 	for (i = 0; i < atomic_read(&index_sequences); i++) {
-		printf("\t");
+		fprintf(dlock_log_file, "\t");
 		for (j = 0; j < sequences[i].length; j++) {
-			char *name =
-			    get_mutex_name(sequences[i].seq[j].mutex);
-			printf("[%s %s] ", name,
-			       (sequences[i].seq[j].action == LOCKED)
-			       ? "locked" : "unlocked");
+			char *name = get_mutex_name(sequences[i].seq[j].mutex);
+			if (name) {
+				fprintf(dlock_log_file, "[%s %s] ", name,
+					(sequences[i].seq[j].action == LOCKED)
+					? "locked" : "unlocked");
+			} else {
+				fprintf(dlock_log_file, "[%p %s] ",
+					sequences[i].seq[j].mutex,
+					(sequences[i].seq[j].action == LOCKED)
+					? "locked" : "unlocked");
+			}
 		}
-		printf("\n\t\theld %llu ms, length: %lu, times %lu\n",
-		       sequences[i].max_held / (machine_mhz / 1000),
-		       sequences[i].length, sequences[i].times);
+		fprintf(dlock_log_file,
+			"\n\t\theld %llu ms, length: %lu, times %lu\n",
+			sequences[i].max_held / (machine_mhz / 1000),
+			sequences[i].length, sequences[i].times);
 	}
-	printf
-	    ("********************************************************************************\n");
-	printf("Thread list:\n");
+
+	fprintf (dlock_log_file,
+	     "********************************************************************************\n");
+	fprintf(dlock_log_file, "Thread list:\n");
 	struct thread_list *np;
 	for (np = lhead.lh_first; np != NULL; np = np->entries.le_next) {
-		printf("\t[%u]", np->tid);
+		fprintf(dlock_log_file, "\t[%u]", np->tid);
 		if (np->seq[0].mutex != 0) {
-			printf("\n");
+			fprintf(dlock_log_file, "\n");
 			for (i = 0; np->seq[i].mutex != 0; i++) {
-				printf("\t\t%s %s ",
-				       get_mutex_name(np->seq[i].mutex),
-				       (np->seq[i].action == LOCKED)
-				       ? "locked\n" : "unlocked\n");
+				fprintf(dlock_log_file, "\t\t%s %s ",
+					get_mutex_name(np->seq[i].mutex),
+					(np->seq[i].action == LOCKED)
+					? "locked\n" : "unlocked\n");
 			}
 		} else {
-			printf(" no mutexes held\n");
+			fprintf(dlock_log_file, " no mutexes held\n");
 		}
 	}
-	printf
-	    ("********************************************************************************\n");
 
-	printf("Mutexes known to dlock:\n");
-	for (i = 0; i < md_index; i++) {
-		printf("\t%p %s=%s:%d\n", mutex_descs[i].mutex,
-		       get_mutex_name(mutex_descs[i].mutex),
-		       mutex_descs[i].fn_name, mutex_descs[i].ln);
+	/* The mutexes need to be inited with pthread_mutex_init to be printed here */
+	if (md_index > 0) {
+
+		fprintf (dlock_log_file,
+		     "********************************************************************************\n");
+
+		fprintf(dlock_log_file, "Mutexes known to dlock:\n");
+		for (i = 0; i < md_index; i++) {
+			fprintf(dlock_log_file, "\t%p %s=%s:%d\n",
+				mutex_descs[i].mutex,
+				get_mutex_name(mutex_descs[i].mutex),
+				mutex_descs[i].fn_name, mutex_descs[i].ln);
+		}
 	}
 
-	o_pthread_mutex_unlock(&ordering_mutex);
+	o_pthread_mutex_unlock(&dlock_mutex);
 }
 
 //TODO: does not work properly
-void ordering_gen_dot()
+void dlock_gen_dot()
 {
 	int i, j;
-	printf("digraph g {\n");
-	o_pthread_mutex_lock(&ordering_mutex);
+	fprintf(dlock_log_file, "digraph g {\n");
+	o_pthread_mutex_lock(&dlock_mutex);
 	for (i = 0; i < atomic_read(&index_sequences); i++) {
 		int first = 1;
 		for (j = 0; j < sequences[i].length; j++) {
@@ -484,13 +521,12 @@ void ordering_gen_dot()
 				if (first)
 					first = 0;
 				else
-					printf("-> ");
-				printf("\"%s\" ", name);	
+					fprintf(dlock_log_file, "-> ");
+				fprintf(dlock_log_file, "\"%s\" ", name);	
 			}
 		}
-		printf(";\n");
+		fprintf(dlock_log_file, ";\n");
 	}
-	o_pthread_mutex_unlock(&ordering_mutex);
-	printf("}\n");
+	o_pthread_mutex_unlock(&dlock_mutex);
+	fprintf(dlock_log_file, "}\n");
 }
-#endif /* DLOCK_ORDERING */
