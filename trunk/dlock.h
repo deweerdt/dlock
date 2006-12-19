@@ -2,14 +2,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-/* Internal dump funcions for dlock hacking only */
-#undef LOCK_DEBUG
-#ifdef LOCK_DEBUG
-#define DLOCKprintf(fmt, args...) printf(fmt, args)
-#else
-#define DLOCKprintf(fmt, args...)
-#endif
-
 enum {
 	DLOCK_INIT_CALIBRATE = (1 << 0),
 	DLOCK_INIT_HANDLE_USR1 = (1 << 1),
@@ -36,42 +28,11 @@ void dlock_init(int flags);
 #endif /* DLOCK_ORDERING */
 
 /** some encapsulation macros */
-static inline int ___pthread_mutex_destroy(pthread_mutex_t *mutex)
-{
-	DLOCKprintf("destroying %d %p\n", (int)pthread_self(), mutex);
-	return pthread_mutex_destroy(mutex);
-}
-
-static inline int ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *mutex_name, char *fn, int ln)
-{
-	int ret;
-	DLOCKprintf("initing %d %p %s\n", (int)pthread_self(), mutex, mutex_name);
-	ret = pthread_mutex_init(mutex, v);	
-	ordering_init(mutex, v, mutex_name, fn, ln);
-	return ret;
-}
-
-static inline int ___pthread_mutex_lock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
-{
-	int ret;
-	DLOCKprintf("locking %d %p %s_%s_%d\n", (int)pthread_self(), mutex, lname, fn, ln);
-	ret = pthread_mutex_lock(mutex);
-	ordering_lock(mutex, (int)pthread_self());
-	return ret;
-}
-
-static inline int ___pthread_mutex_try_lock(pthread_mutex_t *mutex)
-{
-	DLOCKprintf("try locking %d %p\n", (int)pthread_self(), mutex);
-	return pthread_mutex_trylock(mutex);
-}
-
-static inline int ___pthread_mutex_unlock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
-{
-	DLOCKprintf("unlocking %d %p %s_%s_%d\n", (int)pthread_self(), mutex, lname, fn, ln);
-	ordering_unlock(mutex, (int)pthread_self());
-	return pthread_mutex_unlock(mutex);
-}
+int ___pthread_mutex_destroy(pthread_mutex_t *mutex);
+int ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *mutex_name, char *fn, int ln);
+int ___pthread_mutex_lock(pthread_mutex_t *mutex, char *lname, char *fn, int ln);
+int ___pthread_mutex_try_lock(pthread_mutex_t *mutex);
+int ___pthread_mutex_unlock(pthread_mutex_t *mutex, char *lname, char *fn, int ln);
 
 /** unlocks a mutex */
 #define MUTEX_UNLOCK(a) ___pthread_mutex_unlock(a,#a, __FILE__, __LINE__)
