@@ -1,6 +1,3 @@
-- Get lock names from source code
 - Detect potential deadlocks
-- Allow displaying the dump upon signal reception
-- Use weak symbols to transparently instrument a given binary
 - Support spinlocks
 - Support various locking functions
