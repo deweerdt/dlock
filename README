@@ -80,3 +80,66 @@ Special behaviour: if dlock is used in runtime mode, and if no flags are
 defined, it automatically registers the DLOCK_INIT_HANDLE_USR1 flag. This
 is to allow doing something useful if you're running at runtime.
 
+E) Reading dlock dumps
+======================
+
+dlock distribution comes with test_noinst and test_inst programs. Both
+behave identically, except for the fact that test_noinst uses a plain
+POSIX thread API, whereas test_inst uses the dlock MUTEX_* API.
+
+If you want to have a quick look at what dlock can bring you, just launch
+./test_inst after building dlock - to try an uninstrumented version,
+launch ./test_noinst and kill -SIGUSR1 $(pidof test_noinst) from another
+shell -. It should print a message along the lines of:
+
+	********************************************************************************
+	Registered lock sequences:
+	held 0 ms, length: 2, times 1
+	mutexA
+	\-----> mutexB
+	\-----> mutexC
+	held 0 ms, length: 1, times 1
+	mutexC
+	held 0 ms, length: 1, times 1
+	mutexD
+	held 0 ms, length: 2, times 1
+	mutexA
+	\-----> mutexB
+	********************************************************************************
+	Thread list:
+	[3079846816] no mutexes held
+	[3079849648]
+	mutexE (locked)
+	\-----> mutexD
+	********************************************************************************
+	Mutexes known to dlock:
+	        0x8049eac mutexA=/home/def/Prog/dlock/test_inst.c:45
+	                depends on:
+	        0x8049ef4 mutexB=/home/def/Prog/dlock/test_inst.c:46
+	                depends on:
+	                0x8049eac
+	        0x8049ec4 mutexC=/home/def/Prog/dlock/test_inst.c:47
+	                depends on:
+	                0x8049eac
+	        0x8049f0c mutexD=/home/def/Prog/dlock/test_inst.c:48
+	                depends on:
+	                0x8049edc
+	        0x8049edc mutexE=/home/def/Prog/dlock/test_inst.c:49
+	                depends on:
+	
+
+The dlock dump is divided in three parts:
+1) The locking sequences (ie. an order to take locks) known to dlock
+   This dumps:	- the max length the lock has been held
+		- the length (depth) of the tree lock
+		- the number of times this given sequence has been used in the program
+		- a tree representing the order in which the locks have been taken
+2) The threads known to dlock, and the mutexes that those threads are holding
+3) The mutexes known to dlock
+   This dumps:	- the address of the mutex
+		- it's name and location in the source file (only
+		available in the instrumented version)
+		- the addresses of the mutexes it depends on (ie. the
+		mutexes taken directly before this one was taken)
+
+
