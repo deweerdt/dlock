@@ -1,3 +1,2 @@
-- Detect potential deadlocks
 - Support spinlocks
 - Support various locking functions
