@@ -88,9 +88,13 @@ behave identically, except for the fact that test_noinst uses a plain
 POSIX thread API, whereas test_inst uses the dlock MUTEX_* API.
 
 If you want to have a quick look at what dlock can bring you, just launch
-./test_inst after building dlock - to try an uninstrumented version,
-launch ./test_noinst and kill -SIGUSR1 $(pidof test_noinst) from another
-shell -. It should print a message along the lines of:
+./test_inst after building dlock.
+
+To try an uninstrumented version, launch:
+"LD_PRELOAD=./libdlock.so ./test_noinst"
+and kill -SIGUSR1 $(pidof test_noinst) from another shell.
+
+It should print a message along the lines of:
 
 	********************************************************************************
 	Registered lock sequences:
