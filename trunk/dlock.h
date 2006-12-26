@@ -17,6 +17,8 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifndef _DLOCK_H_
+#define _DLOCK_H_
 
 #include <pthread.h>
 #include <assert.h>
@@ -32,30 +34,30 @@ enum {
 
 
 #ifndef DLOCK
-static void dlock_dump() {}
-void dlock_gen_dot() {}
+static void __attribute__((unused)) dlock_dump() {}
+static void __attribute__((unused)) dlock_gen_dot() {}
 
-static int ___pthread_mutex_destroy(pthread_mutex_t *mutex)
+static int __attribute__((unused)) ___pthread_mutex_destroy(pthread_mutex_t *mutex)
 {
 	return pthread_mutex_destroy(mutex);
 }
 
-static int ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *mutex_name, char *fn, int ln)
+static int __attribute__((unused)) ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *mutex_name, char *fn, int ln)
 {
 	return pthread_mutex_init(mutex, v);
 }
 
-static int ___pthread_mutex_lock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
+static int __attribute__((unused)) ___pthread_mutex_lock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
 {
 	return pthread_mutex_lock(mutex);
 }
 
-static int ___pthread_mutex_try_lock(pthread_mutex_t *mutex)
+static int __attribute__((unused)) ___pthread_mutex_try_lock(pthread_mutex_t *mutex)
 {
 	return pthread_mutex_trylock(mutex);
 }
 
-static int ___pthread_mutex_unlock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
+static int __attribute__((unused)) ___pthread_mutex_unlock(pthread_mutex_t *mutex, char *lname, char *fn, int ln)
 {
 	return pthread_mutex_unlock(mutex);
 }
@@ -88,3 +90,4 @@ void dlock_gen_dot();
 /** destroys a mutex */
 #define MUTEX_DESTROY(a) ___pthread_mutex_destroy(a)
 
+#endif /* _DLOCK_H_ */
