@@ -1,0 +1,82 @@
+dlock is a lock debug library.
+It tracks down the calls to the pthread_mutex_{un,}lock functions
+and keeps track of the lock usage.
+Lock usage patterns are subsequently available as a dump, either
+by calling ordering_dump() or by sending a signal if the appropriate
+flags have been set in the DLOCK_FLAGS environment variable.
+
+A) Introduction
+===============
+
+dlock is available in two flavors:
+- compile time: instrumentation of the code is done through the MUTEX_*
+API.
+- run time: dlock is loaded on the fly, but some information such as
+the name of the lock, its location in the source code, won't be available.
+
+If you don't have access to the source code of the program that you're
+inspecting or if you don't want to go through the hassle of changing
+your pthread_mutex_* calls, jump to "B) Compile time usage".
+If you want nice reports and details about the mutexes, go to "C) Run
+time usage".
+
+In any case, go to "D) Controlling dlock behaviour"
+
+B) Compile time usage
+=====================
+
+With this method, you will need:
+- access to the source code of the program to be observed.
+- use MUTEX_INIT, MUTEX_LOCK and MUTEX_UNLOCK instead of
+pthread_mutex_init, pthread_mutex_lock and pthread_mutex_unlock
+respectively
+- compile your program with the -DDLOCK flag
+
+C) Run time usage
+=====================
+
+This method is a lightweight one, you don't have to recompile your
+code whatsoever, you'll only need the libdlock.so shared library installed
+on your system.
+This lightweightness has its drawbacks however: mutexes will only be
+known by their address. You'll be told if there's a problem with the
+lock ordering of the observed program, but you'll probably need to go
+through a recompile (ie method described in B) if you want more useful
+information, and in particular the name and the location of the lock.
+
+D) Controlling dlock behaviour
+==============================
+
+dlock is controlled by the means of environment variables, the main one
+being DLOCK_FLAGS.
+DLOCK_FLAGS must be an integer, and is treated as a bit field. Each bit
+corresponds to a dlock feature.
+
+Bit 0: DLOCK_INIT_CALIBRATE, if this bit is set, dlock will start a
+calibrating loop before doing anything. This calibrating loop will
+estimate the processor's running speed, and will thus display accurate
+"held times" for the mutexes.
+
+Bit 1: DLOCK_INIT_HANDLE_USR1, if this bit is set, dlock will install a
+signal handler to catch the SIGUSR1 signal. Upon the signal's reception,
+dlock will display the locks currently known to it, as well as their
+ordering
+
+Bit 2: DLOCK_INIT_HANDLE_USR2, if this bit is set, dlock will install a
+signal handler to catch the SIGUSR2 signal. Upon the signal's reception,
+dlock will display the locks currently known to it, as well as their
+ordering
+
+Bit 3: DLOCK_REGISTER_ATEXIT, if this bit is set, dlock will call atexit.
+Upon the programs's termination, dlock will display the locks known to
+it, as well as their ordering.
+
+Bit 4: DLOCK_LOG_FILE, if this bit is set, dlock will log to a file
+instead of printing to stderr. The name of the file is defined by the
+DLOCK_LOG_FILE environment variable. Note that if the latter is not
+defined, dlock fallsback to stderr printing.
+
+Special behaviour: if dlock is used in runtime mode, and if no flags are
+defined, it automatically registers the DLOCK_INIT_HANDLE_USR1 flag. This
+is to allow doing something useful if you're running at runtime.
+
