@@ -1,0 +1,2 @@
+- Support spinlocks
+- Support various locking functions
