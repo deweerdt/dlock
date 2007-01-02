@@ -22,7 +22,13 @@
 #include <pthread.h>
 #include "dlock.h"
 
-pthread_mutex_t mutexA;
+pthread_spinlock_t spinA;
+pthread_spinlock_t spinB;
+pthread_spinlock_t spinC;
+pthread_spinlock_t spinD;
+pthread_spinlock_t spinE;
+
+pthread_mutex_t mutexA = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutexB;
 pthread_mutex_t mutexC;
 pthread_mutex_t mutexD;
@@ -32,6 +38,10 @@ void *f(void *unused)
 {
 	MUTEX_LOCK(&mutexA);
 	MUTEX_LOCK(&mutexB);
+	SPIN_LOCK(&spinA);
+	SPIN_LOCK(&spinB);
+	SPIN_UNLOCK(&spinB);
+	SPIN_UNLOCK(&spinA);
 	MUTEX_UNLOCK(&mutexB);
 	MUTEX_UNLOCK(&mutexA);
 	
@@ -42,14 +52,19 @@ int main()
 {
 	pthread_t t;
 
-	MUTEX_INIT(&mutexA, 0);
 	MUTEX_INIT(&mutexB, 0);
 	MUTEX_INIT(&mutexC, 0);
 	MUTEX_INIT(&mutexD, 0);
 	MUTEX_INIT(&mutexE, 0);
 
+	SPIN_INIT(&spinA, 0);
+	SPIN_INIT(&spinB, 0);
+	SPIN_INIT(&spinC, 0);
+	SPIN_INIT(&spinD, 0);
+	SPIN_INIT(&spinE, 0);
+
 	pthread_create(&t, NULL, f, NULL);
-#if 1
+
 	MUTEX_LOCK(&mutexA);
 	MUTEX_LOCK(&mutexB);
 	MUTEX_UNLOCK(&mutexB);
@@ -57,12 +72,9 @@ int main()
 	MUTEX_UNLOCK(&mutexC);
 	MUTEX_UNLOCK(&mutexA);
 
-#endif
-
 	MUTEX_LOCK(&mutexC);
 	MUTEX_UNLOCK(&mutexC);
 
-#if 1
 	MUTEX_LOCK(&mutexD);
 	MUTEX_UNLOCK(&mutexD);
 
@@ -70,7 +82,25 @@ int main()
 	MUTEX_LOCK(&mutexD);
 	MUTEX_UNLOCK(&mutexD);
 	//MUTEX_UNLOCK(&mutexE);
-#endif
+
+	SPIN_LOCK(&spinA);
+	SPIN_LOCK(&spinB);
+	SPIN_UNLOCK(&spinB);
+	SPIN_LOCK(&spinC);
+	SPIN_UNLOCK(&spinC);
+	SPIN_UNLOCK(&spinA);
+
+	SPIN_LOCK(&spinC);
+	SPIN_UNLOCK(&spinC);
+
+	SPIN_LOCK(&spinD);
+	SPIN_UNLOCK(&spinD);
+
+	SPIN_LOCK(&spinE);
+	SPIN_LOCK(&spinD);
+	SPIN_UNLOCK(&spinD);
+	//SPIN_UNLOCK(&spinE);
+
 	pthread_join(t, NULL);
 
 	dlock_dump();
