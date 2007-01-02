@@ -1,2 +1,2 @@
-- Support spinlocks
 - Support various locking functions
+- Implement the dot generating function
