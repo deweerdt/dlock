@@ -1,6 +1,6 @@
 /*
     dlock.c - dlock core code
-    Copyright (C) 2006  Frederik Deweerdt <frederik.deweerdt@gmail.com>
+    Copyright (C) 2006,2007  Frederik Deweerdt <frederik.deweerdt@gmail.com>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
