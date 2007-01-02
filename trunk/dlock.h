@@ -24,18 +24,35 @@
 #include <assert.h>
 #include <stdio.h>
 
-enum {
-	DLOCK_INIT_CALIBRATE = (1 << 0),
-	DLOCK_INIT_HANDLE_USR1 = (1 << 1),
-	DLOCK_INIT_HANDLE_USR2 = (1 << 2),
-	DLOCK_REGISTER_ATEXIT = (1 << 3),
-	DLOCK_LOG_FILE = (1 << 4),
-};
-
 
 #ifndef DLOCK
 static void __attribute__((unused)) dlock_dump() {}
 static void __attribute__((unused)) dlock_gen_dot() {}
+
+static int __attribute__((unused)) ___pthread_spin_destroy(pthread_spinlock_t *spin)
+{
+	return pthread_spin_destroy(spin);
+}
+
+static int __attribute__((unused)) ___pthread_spin_init(pthread_spinlock_t *spin, int i, char *spin_name, char *fn, int ln)
+{
+	return pthread_spin_init(spin, i);
+}
+
+static int __attribute__((unused)) ___pthread_spin_lock(pthread_spinlock_t *spin, char *lname, char *fn, int ln)
+{
+	return pthread_spin_lock(spin);
+}
+
+static int __attribute__((unused)) ___pthread_spin_trylock(pthread_spinlock_t *spin)
+{
+	return pthread_spin_trylock(spin);
+}
+
+static int __attribute__((unused)) ___pthread_spin_unlock(pthread_spinlock_t *spin, char *lname, char *fn, int ln)
+{
+	return pthread_spin_unlock(spin);
+}
 
 static int __attribute__((unused)) ___pthread_mutex_destroy(pthread_mutex_t *mutex)
 {
@@ -64,30 +81,35 @@ static int __attribute__((unused)) ___pthread_mutex_unlock(pthread_mutex_t *mute
 
 #else /* DLOCK*/
 
+/* pthread mutexes */
 int ___pthread_mutex_destroy(pthread_mutex_t *mutex);
-int ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *mutex_name, char *fn, int ln);
+int ___pthread_mutex_init(pthread_mutex_t *mutex, void *v, char *lname, char *fn, int ln);
 int ___pthread_mutex_lock(pthread_mutex_t *mutex, char *lname, char *fn, int ln);
 int ___pthread_mutex_try_lock(pthread_mutex_t *mutex);
 int ___pthread_mutex_unlock(pthread_mutex_t *mutex, char *lname, char *fn, int ln);
+
+/* pthread spinlocks */
+int ___pthread_spin_destroy(pthread_spinlock_t *spin);
+int ___pthread_spin_init(pthread_spinlock_t *spin, int i, char *lname, char *fn, int ln);
+int ___pthread_spin_lock(pthread_spinlock_t *spin, char *lname, char *fn, int ln);
+int ___pthread_spin_try_lock(pthread_spinlock_t *spin);
+int ___pthread_spin_unlock(pthread_spinlock_t *spin, char *lname, char *fn, int ln);
 
 void dlock_dump();
 void dlock_gen_dot();
 #endif /* DLOCK */
 
-/** some encapsulation macros */
-/** unlocks a mutex */
-#define MUTEX_UNLOCK(a) ___pthread_mutex_unlock(a,#a, __FILE__, __LINE__)
+/* dlock instrumentation API */
+#define MUTEX_UNLOCK(a)		___pthread_mutex_unlock(a,#a, __FILE__, __LINE__)
+#define MUTEX_LOCK(a)		___pthread_mutex_lock(a,#a, __FILE__, __LINE__)
+#define MUTEX_TRY_LOCK(a)	___pthread_mutex_try_lock(a)
+#define MUTEX_INIT(a, v)	___pthread_mutex_init(a,v,#a, __FILE__, __LINE__)
+#define MUTEX_DESTROY(a)	___pthread_mutex_destroy(a)
 
-/** locks a mutex */
-#define MUTEX_LOCK(a) ___pthread_mutex_lock(a,#a, __FILE__, __LINE__)
-
-/** locks a mutex */
-#define MUTEX_TRY_LOCK(a) ___pthread_mutex_try_lock(a)
-
-/** inits a mutex */
-#define MUTEX_INIT(a, v) ___pthread_mutex_init(a,v,#a, __FILE__, __LINE__)
-
-/** destroys a mutex */
-#define MUTEX_DESTROY(a) ___pthread_mutex_destroy(a)
+#define SPIN_UNLOCK(a)		___pthread_spin_unlock(a,#a, __FILE__, __LINE__)
+#define SPIN_LOCK(a)		___pthread_spin_lock(a,#a, __FILE__, __LINE__)
+#define SPIN_TRY_LOCK(a)	___pthread_spin_trylock(a)
+#define SPIN_INIT(a, v)		___pthread_spin_init(a,v,#a, __FILE__, __LINE__)
+#define SPIN_DESTROY(a)		___pthread_spin_destroy(a)
 
 #endif /* _DLOCK_H_ */
