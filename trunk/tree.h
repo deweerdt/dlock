@@ -20,10 +20,12 @@
 #ifndef _TREE_H_
 #define _TREE_H_
 
+#include "dlock_core.h"
+
 struct dlock_node {
 	struct dlock_node *parent;
 	struct dlock_node **children;
-	pthread_mutex_t *mutex;
+	lock_t *lock;
 	int nb_children;
 	unsigned long long lock_time;
 	unsigned long long unlock_time;
@@ -66,7 +68,7 @@ static unsigned long cksum(struct dlock_node *n, int salt)
 	unsigned long cksm = 0;
 
 	for (i=0; i < n->nb_children; i++) {
-		cksm = (cksm << 4)^(cksm >> 28)^((unsigned long)n->children[i]->mutex);
+		cksm = (cksm << 4)^(cksm >> 28)^((unsigned long)n->children[i]->lock);
 		cksm = (cksm << 4)^(cksm >> 28)^(cksum(n->children[i], cksm));
 	}
 	return cksm % BIG_PRIME;
