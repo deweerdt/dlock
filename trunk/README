@@ -1,5 +1,5 @@
 dlock is a lock debug library.
-It tracks down the calls to the pthread_mutex_{un,}lock functions
+It tracks down the calls to the pthread_{spin,mutex}_{un,}lock functions
 and keeps track of the lock usage.
 Lock usage patterns are subsequently available as a dump, either
 by calling ordering_dump() or by sending a signal if the appropriate
@@ -9,15 +9,15 @@ A) Introduction
 ===============
 
 dlock is available in two flavors:
-- compile time: instrumentation of the code is done through the MUTEX_*
-API.
+- compile time: instrumentation of the code is done through the
+{SPIN,MUTEX}_* API.
 - run time: dlock is loaded on the fly, but some information such as
 the name of the lock, its location in the source code, won't be available.
 
 If you don't have access to the source code of the program that you're
 inspecting or if you don't want to go through the hassle of changing
-your pthread_mutex_* calls, jump to "B) Compile time usage".
-If you want nice reports and details about the mutexes, go to "C) Run
+your pthread_{spin,mutex}_* calls, jump to "B) Compile time usage".
+If you want nice reports and details about the locks, go to "C) Run
 time usage".
 
 In any case, go to "D) Controlling dlock behaviour"
@@ -29,6 +29,9 @@ With this method, you will need:
 - access to the source code of the program to be observed.
 - use MUTEX_INIT, MUTEX_LOCK and MUTEX_UNLOCK instead of
 pthread_mutex_init, pthread_mutex_lock and pthread_mutex_unlock
+respectively
+- use SPIN_INIT, SPIN_LOCK and SPIN_UNLOCK instead of
+pthread_spininit, pthread_spin_lock and pthread_spinunlock
 respectively
 - compile your program with the -DDLOCK flag
 
@@ -55,7 +58,7 @@ corresponds to a dlock feature.
 Bit 0: DLOCK_INIT_CALIBRATE, if this bit is set, dlock will start a
 calibrating loop before doing anything. This calibrating loop will
 estimate the processor's running speed, and will thus display accurate
-"held times" for the mutexes.
+"held times" for the locks.
 
 Bit 1: DLOCK_INIT_HANDLE_USR1, if this bit is set, dlock will install a
 signal handler to catch the SIGUSR1 signal. Upon the signal's reception,
@@ -85,7 +88,7 @@ E) Reading dlock dumps
 
 dlock distribution comes with test_noinst and test_inst programs. Both
 behave identically, except for the fact that test_noinst uses a plain
-POSIX thread API, whereas test_inst uses the dlock MUTEX_* API.
+POSIX thread API, whereas test_inst uses the dlock {SPIN,MUTEX}_* API.
 
 If you want to have a quick look at what dlock can bring you, just launch
 ./test_inst after building dlock.
@@ -138,12 +141,12 @@ The dlock dump is divided in three parts:
 		- the length (depth) of the tree lock
 		- the number of times this given sequence has been used in the program
 		- a tree representing the order in which the locks have been taken
-2) The threads known to dlock, and the mutexes that those threads are holding
-3) The mutexes known to dlock
-   This dumps:	- the address of the mutex
+2) The threads known to dlock, and the locks that those threads are holding
+3) The locks known to dlock
+   This dumps:	- the address of the lock (mutex or spinlock)
 		- it's name and location in the source file (only
 		available in the instrumented version)
-		- the addresses of the mutexes it depends on (ie. the
-		mutexes taken directly before this one was taken)
+		- the addresses of the locks it depends on (ie. the
+		locks taken directly before this one was taken)
 
 
