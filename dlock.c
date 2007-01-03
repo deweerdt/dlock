@@ -29,7 +29,6 @@
 #include <signal.h>
 #include <dlfcn.h>
 
-typedef void (*sighandler_t)(int);
 
 #include "dlock.h"
 #include "dlock_core.h"
@@ -328,6 +327,12 @@ static void append_lock(struct thread_list *t, lock_t *lock)
 
 static int append_unlock(struct thread_list *t, lock_t *lock) 
 {
+	if (t->current_node->lock == lock) {
+			dlock_dump();
+			fprintf(dlock_log_file, "Out of order unlocking %p locked -> unlocking %p\n", t->current_node->lock, lock);
+			exit(0);
+	}
+
 	t->current_node->unlock_time = arch_get_ticks();
 	t->current_node = t->current_node->parent;	
 
