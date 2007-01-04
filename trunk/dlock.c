@@ -327,18 +327,21 @@ static void append_lock(struct thread_list *t, lock_t *lock)
 
 static int append_unlock(struct thread_list *t, lock_t *lock) 
 {
-	if (t->current_node->lock == lock) {
-			dlock_dump();
-			fprintf(dlock_log_file, "Out of order unlocking %p locked -> unlocking %p\n", t->current_node->lock, lock);
-			exit(0);
+	/* check we're unlocking the current lock */
+	if (t->current_node->lock != lock) {
+		dlock_dump();
+		fprintf(dlock_log_file,
+			"Out of order unlocking %s locked -> unlocking %s\n",
+			get_lock_desc(t->current_node->lock)->name,
+			get_lock_desc(lock)->name);
+		exit(0);
 	}
 
 	t->current_node->unlock_time = arch_get_ticks();
-	t->current_node = t->current_node->parent;	
+	t->current_node = t->current_node->parent;
 
 	/* is loop closed? */
-	return (t->root->nb_children 
-		&& FIRST_NODE(t)->lock == lock);
+	return (t->root->nb_children && FIRST_NODE(t)->lock == lock);
 }
 
 void __dlock_lock_init(lock_t *lock, void *v,
@@ -358,6 +361,7 @@ void __dlock_lock_init(lock_t *lock, void *v,
 	lock_descs[ld_index].ln = ln;
 
 	ld_index++;
+	assert(ld_index < MAX_KNOWN_LOCKS && "Too many locks in your program");
 }
 
 void dlock_lock_init(lock_t *lock, void *v,
@@ -479,8 +483,6 @@ void print_lock_tree(struct dlock_node *n, int depth)
 	for(i=0; i < depth - 1; i++) {
 		if (i == depth - 2) {
 			fprintf(dlock_log_file, "\\----->\t");
-		} else if (i == 0) {
-			fprintf(dlock_log_file, "|\t");
 		} else {
 			fprintf(dlock_log_file, "\t");
 		}
