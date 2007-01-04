@@ -1,2 +1,4 @@
 - Support various locking functions
 - Implement the dot generating function
+- Activate/Deactivate dlock on demand (signals, bug encountered, etc...)
+- Make action on locking bug configurable (exit, abort, de-activate, nothing, ...)
