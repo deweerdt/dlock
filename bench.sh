@@ -15,13 +15,12 @@
 #   with this program; if not, write to the Free Software Foundation, Inc.,
 #   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-
 LOOPS=10
-rm -f res_dlock; for i in $(seq 1 $LOOPS); do (time ./perf_dlock) 2>> res_dlock; done
+rm -f res_dlock; for i in $(seq 1 $LOOPS); do (time perf_dlock) 2>> res_dlock; done
 DLOCK=$(cat res_dlock  | grep real | sed 's/.*m\(.*\)s.*/\1/' | awk '{tot+=$1;}END{print tot;}')
 rm -f res_dlock
 
-rm -f res_nodlock; for i in $(seq 1 $LOOPS); do (time ./perf_nodlock) 2>> res_nodlock; done
+rm -f res_nodlock; for i in $(seq 1 $LOOPS); do (time perf_nodlock) 2>> res_nodlock; done
 NO_DLOCK=$(cat res_nodlock  | grep real | sed 's/.*m\(.*\)s.*/\1/' | awk '{tot+=$1;}END{print tot;}')
 rm -f res_nodlock
 
