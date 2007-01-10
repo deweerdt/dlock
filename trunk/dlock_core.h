@@ -28,9 +28,9 @@
 #define DLOCKprintf(fmt, args...)
 #endif
 
-/* this is absolutely needed because pthread_spinlock_t are really
+/* this is absolutely needed because pthread_spindlock_lock_t are really
  * volatile ints */
-typedef volatile void lock_t;
+typedef volatile void dlock_lock_t;
 
 enum lock_type {
 	MUTEX,
@@ -68,10 +68,10 @@ enum {
                 	   exit(-1);\
                         }
 
-void dlock_lock_init(lock_t *lock, void *v, const char *lock_name, char *fn,
+void dlock_lock_init(dlock_lock_t *lock, void *v, const char *lock_name, char *fn,
 		     int ln, enum lock_type type);
-void dlock_lock(lock_t *lock, unsigned int tid);
-void dlock_unlock(lock_t *lock, unsigned int tid);
+void dlock_lock(dlock_lock_t *lock, unsigned int tid);
+void dlock_unlock(dlock_lock_t *lock, unsigned int tid);
 void dlock_dump();
 void dlock_gen_dot();
 
