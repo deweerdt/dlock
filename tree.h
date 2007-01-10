@@ -25,7 +25,7 @@
 struct dlock_node {
 	struct dlock_node *parent;
 	struct dlock_node **children;
-	lock_t *lock;
+	dlock_lock_t *lock;
 	int nb_children;
 	unsigned long long lock_time;
 	unsigned long long unlock_time;
