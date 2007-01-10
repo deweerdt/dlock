@@ -18,16 +18,24 @@
 */
 
 
-#include <sys/queue.h>
+#if defined(__linux__)
+#include <sys/queue.h> 
+#else
+#include "queue.h"
+#endif
+
 #include <sys/time.h>
 #include <string.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
-#include <asm/atomic.h>
 #include <signal.h>
 #include <dlfcn.h>
+#include <stdarg.h>
+
+#if defined (__sun)
+typedef void (*sighandler_t)(int);
+#endif
 
 
 #include "dlock.h"
@@ -39,13 +47,21 @@
 /** Log file, stderr by default */
 static FILE *dlock_log_file;
 
-static struct lock_desc *get_lock_desc(lock_t *lock);
+static struct lock_desc *get_lock_desc(dlock_lock_t *lock);
 
 #if defined(__i386__) || defined(__x86_64__)
 static __inline__ unsigned long long int arch_get_ticks(void)
 {
 	unsigned long long int x;
 	asm volatile ("rdtsc" : "=A" (x));
+	return x;
+}
+#elif defined(__sun)
+static __inline__ unsigned long long int arch_get_ticks(void)
+{
+	unsigned long long int x;
+	/* gethrtime(3C) returns a signed long long but any way... */
+	x = gethrtime();
 	return x;
 }
 #else
@@ -61,6 +77,37 @@ static __inline__ unsigned long long int arch_get_ticks(void)
 /* Length of the recorded name of a lock */
 #define MAX_LOCK_NAME 255
 #define MAX_FN_NAME 255
+
+enum action_on_error {
+	DLOCK_ACTION_IGNORE=	(1 << 0),
+	DLOCK_ACTION_ABORT=	(1 << 1),
+	DLOCK_ACTION_EXIT=	(1 << 2),
+	DLOCK_ACTION_DUMP=	(1 << 3),
+};
+/* TODO: init with DLOCK_FLAGS */
+static unsigned int default_action = DLOCK_ACTION_ABORT;
+
+static void dlock_error(unsigned int action_flags, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	fprintf(dlock_log_file, fmt, args);
+	va_end(args);
+
+	if (action_flags & DLOCK_ACTION_DUMP) {
+		dlock_dump();	
+	}
+	if (action_flags & DLOCK_ACTION_IGNORE) {
+		return;
+	}
+	if (action_flags & DLOCK_ACTION_ABORT) {
+		abort();
+	}
+	if (action_flags & DLOCK_ACTION_EXIT) {
+		exit(0);
+	}
+}
 
 static unsigned long machine_mhz = ~0UL;
 static unsigned long calibrating_loop()
@@ -87,21 +134,32 @@ static unsigned long calibrating_loop()
 
 void dlock_hijack_libpthread()
 {
-	void *libpthread_handle = NULL;
-	if ( (libpthread_handle = dlopen("libpthread.so", RTLD_NOW)) == NULL)
-		if ( (libpthread_handle = dlopen("libpthread.so.0", RTLD_NOW)) == NULL) {
-			fprintf(dlock_log_file, "error loading libpthread!\n");
-			exit(-1);
-		}
-	HIJACK(libpthread_handle, pthread_mutex_init, "pthread_mutex_init");
-	HIJACK(libpthread_handle, pthread_mutex_lock, "pthread_mutex_lock");
-	HIJACK(libpthread_handle, pthread_mutex_trylock, "pthread_mutex_trylock");
-	HIJACK(libpthread_handle, pthread_mutex_unlock, "pthread_mutex_unlock");
+	void *lib_handle = NULL;
 
-	HIJACK(libpthread_handle, pthread_spin_init, "pthread_spin_init");
-	HIJACK(libpthread_handle, pthread_spin_lock, "pthread_spin_lock");
-	HIJACK(libpthread_handle, pthread_spin_trylock, "pthread_spin_trylock");
-	HIJACK(libpthread_handle, pthread_spin_unlock, "pthread_spin_unlock");
+	if ( (lib_handle = dlopen("libpthread.so", RTLD_NOW)) == NULL) {
+		if ( (lib_handle = dlopen("libpthread.so.0", RTLD_NOW)) == NULL) {
+			dlock_error(DLOCK_ACTION_EXIT, "error loading libpthread!\n");
+		}
+	}
+
+	HIJACK(lib_handle, pthread_mutex_init, "pthread_mutex_init");
+	HIJACK(lib_handle, pthread_mutex_lock, "pthread_mutex_lock");
+	HIJACK(lib_handle, pthread_mutex_trylock, "pthread_mutex_trylock");
+	HIJACK(lib_handle, pthread_mutex_unlock, "pthread_mutex_unlock");
+
+#if defined(__sun)
+	/* Solaris stores the spinlock code in the libc */
+	if ( (lib_handle = dlopen("libc.so", RTLD_NOW)) == NULL) {
+		if ( (lib_handle = dlopen("libc.so.0", RTLD_NOW)) == NULL) {
+			dlock_error(DLOCK_ACTION_EXIT, "error loading libpthread!\n");
+		}
+	}
+#endif
+
+	HIJACK(lib_handle, pthread_spin_init, "pthread_spin_init");
+	HIJACK(lib_handle, pthread_spin_lock, "pthread_spin_lock");
+	HIJACK(lib_handle, pthread_spin_trylock, "pthread_spin_trylock");
+	HIJACK(lib_handle, pthread_spin_unlock, "pthread_spin_unlock");
 }
 
 struct thread_list {
@@ -120,11 +178,11 @@ struct sequence {
 };
 
 struct lock_desc {
-	lock_t *lock;
+	dlock_lock_t *lock;
 	char name[MAX_LOCK_NAME];
 	char fn_name[MAX_FN_NAME];
 	int ln;
-	lock_t *depends_on[MAX_KNOWN_LOCKS];
+	dlock_lock_t *depends_on[MAX_KNOWN_LOCKS];
 	enum lock_type type;
 };
 
@@ -224,7 +282,7 @@ static struct thread_list *create_queue(unsigned int tid)
  *
  * @return the parent mutex or NULL if no parent mutex was found
  **/
-static lock_t *get_previous_lock(struct thread_list *t)
+static dlock_lock_t *get_previous_lock(struct thread_list *t)
 {
 	return t->current_node->parent->lock;
 }
@@ -238,24 +296,26 @@ static lock_t *get_previous_lock(struct thread_list *t)
  *
  * @return 
  **/
-static void new_dependency(struct lock_desc *desc, lock_t *master_mutex)
+static void new_dependency(struct lock_desc *desc, dlock_lock_t *master_mutex)
 {
 	int i;
-	
+
 	/* skip to an empty stop in depends_on[] */
-	for (i=0; desc->depends_on[i] != master_mutex 
-		  && desc->depends_on[i] != NULL 
-		  && i < MAX_KNOWN_LOCKS; i++);
+	for (i = 0; desc->depends_on[i] != master_mutex
+	     && desc->depends_on[i] != NULL && i < MAX_KNOWN_LOCKS; i++);
 
 	/* sanity check */
-	assert(i != MAX_KNOWN_LOCKS && "Too much mutexes");
+	if (i >= MAX_KNOWN_LOCKS) {
+		dlock_error(DLOCK_ACTION_ABORT,
+			    "Your application uses too much mutexes, please disable libdlock.\n");
+	}
 
 	/* known dependency, don't add */
 	if (desc->depends_on[i] == master_mutex)
 		return;
 
 	/* assign new dependency */
-	desc->depends_on[i] = master_mutex;	
+	desc->depends_on[i] = master_mutex;
 }
 
 /**
@@ -266,7 +326,7 @@ static void new_dependency(struct lock_desc *desc, lock_t *master_mutex)
  *
  * @return 1 if @mutex depends on probed_lock, 0 otherwise
  **/
-static int is_depending_on(lock_t *lock, lock_t *probed_lock)
+static int is_depending_on(dlock_lock_t *lock, dlock_lock_t *probed_lock)
 {
 	int i;
 	struct lock_desc *desc;
@@ -289,9 +349,9 @@ static int is_depending_on(lock_t *lock, lock_t *probed_lock)
 }
 
 #define ALLOC_STEP 4
-static void append_lock(struct thread_list *t, lock_t *lock) 
+static void append_lock(struct thread_list *t, dlock_lock_t *lock) 
 {
-	lock_t *previous;
+	dlock_lock_t *previous;
 
 	t->current_node->nb_children++;
 	#if 1
@@ -317,24 +377,22 @@ static void append_lock(struct thread_list *t, lock_t *lock)
 		/* let us know if the previous lock was already
 		 * depending on mutex (deadlock?)*/
 		if (is_depending_on(previous, lock)) {
-			dlock_dump();
-			fprintf(dlock_log_file, "New dependency %p -> %p leads to deadlock\n", previous, lock);
-			exit(0);
+			dlock_error(default_action | DLOCK_ACTION_DUMP,
+				    "New dependency %p -> %p leads to deadlock\n",
+				    previous, lock);
 		}
 		new_dependency(get_lock_desc(lock), previous);
 	}
 }
 
-static int append_unlock(struct thread_list *t, lock_t *lock) 
+static int append_unlock(struct thread_list *t, dlock_lock_t *lock) 
 {
 	/* check we're unlocking the current lock */
 	if (t->current_node->lock != lock) {
-		dlock_dump();
-		fprintf(dlock_log_file,
+		dlock_error(default_action | DLOCK_ACTION_DUMP,
 			"Out of order unlocking %s locked -> unlocking %s\n",
 			get_lock_desc(t->current_node->lock)->name,
 			get_lock_desc(lock)->name);
-		exit(0);
 	}
 
 	t->current_node->unlock_time = arch_get_ticks();
@@ -344,7 +402,7 @@ static int append_unlock(struct thread_list *t, lock_t *lock)
 	return (t->root->nb_children && FIRST_NODE(t)->lock == lock);
 }
 
-void __dlock_lock_init(lock_t *lock, void *v,
+void __dlock_lock_init(dlock_lock_t *lock, void *v,
 		       const char *lock_name, char *fn, int ln,
 		       enum lock_type type)
 {
@@ -361,10 +419,13 @@ void __dlock_lock_init(lock_t *lock, void *v,
 	lock_descs[ld_index].ln = ln;
 
 	ld_index++;
-	assert(ld_index < MAX_KNOWN_LOCKS && "Too many locks in your program");
+	if (ld_index >= MAX_KNOWN_LOCKS) {
+		dlock_error(DLOCK_ACTION_ABORT,
+			    "Your application uses too much mutexes, please disable libdlock.\n");
+	}
 }
 
-void dlock_lock_init(lock_t *lock, void *v,
+void dlock_lock_init(dlock_lock_t *lock, void *v,
 		     const char *lock_name, char *fn, int ln,
 		     enum lock_type type)
 {
@@ -373,7 +434,7 @@ void dlock_lock_init(lock_t *lock, void *v,
 	o_pthread_mutex_unlock(&descs_mutex);
 }
 
-void dlock_lock(lock_t *lock, unsigned int tid)
+void dlock_lock(dlock_lock_t *lock, unsigned int tid)
 {
 	struct thread_list *t;
 
@@ -431,19 +492,21 @@ out:
 	return ret;
 }
 
-void dlock_unlock(lock_t *lock, unsigned int tid)
+void dlock_unlock(dlock_lock_t *lock, unsigned int tid)
 {
 	struct thread_list *t;
 
 	t = find_list(tid);
 	/* if not found: we started unlocking without a previous lock */
 	if (!t) {
-		assert(0);
+		dlock_error(default_action | DLOCK_ACTION_DUMP,
+			    "Thread %d issued an unlock before any locking",
+			    tid);
 	}
 	/* if loop closed */
 	if (append_unlock(t, lock)) {
 		/* do we already have such a sequence ? */
-		if(!is_registered_sequence(t)) {
+		if (!is_registered_sequence(t)) {
 			register_sequence(t);
 			/* reset the thread's queue */
 			create_queue(tid);
@@ -456,7 +519,7 @@ void dlock_unlock(lock_t *lock, unsigned int tid)
 	}
 }
 
-static struct lock_desc *get_lock_desc(lock_t *lock)
+static struct lock_desc *get_lock_desc(dlock_lock_t *lock)
 {
 	int i;
 	char buf[16];
