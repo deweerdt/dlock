@@ -1,0 +1,4 @@
+Eric Noulard: Solaris port
+Frederik Deweerdt: Started dlock
+Jerome Arbez-Gindre: misc compile fixes
+Pierre Mallard: catch some illegal unlocking cases
