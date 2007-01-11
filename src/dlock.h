@@ -27,7 +27,7 @@
 
 #ifndef DLOCK
 static void __attribute__((unused)) dlock_dump() {}
-static void __attribute__((unused)) dlock_gen_dot() {}
+static void __attribute__((unused)) dlock_dump_dot() {}
 
 static int __attribute__((unused)) ___pthread_spin_destroy(pthread_spinlock_t *spin)
 {
@@ -96,7 +96,7 @@ int ___pthread_spin_try_lock(pthread_spinlock_t *spin);
 int ___pthread_spin_unlock(pthread_spinlock_t *spin, char *lname, char *fn, int ln);
 
 void dlock_dump();
-void dlock_gen_dot();
+void dlock_dump_dot();
 #endif /* DLOCK */
 
 /* dlock instrumentation API */
