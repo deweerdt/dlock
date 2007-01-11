@@ -1,5 +1,5 @@
 SET(LIB_NAME dlock)
-SET(DLOCK_SRCS dlock.c pthread_mutexes.c pthread_spinlocks.c backtrace.c)
+SET(DLOCK_SRCS dlock.c pthread_mutexes.c pthread_spinlocks.c)
 ADD_LIBRARY(${LIB_NAME} SHARED ${DLOCK_SRCS})
 SET_TARGET_PROPERTIES(${LIB_NAME} PROPERTIES COMPILE_FLAGS "-O2 -Wall -fPIC -DDLOCK")
 SET_TARGET_PROPERTIES(${LIB_NAME} PROPERTIES LINK_FLAGS "-nostartfiles")
