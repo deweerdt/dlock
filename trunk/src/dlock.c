@@ -49,12 +49,19 @@ static FILE *dlock_log_file;
 
 static struct lock_desc *get_lock_desc(dlock_lock_t *lock);
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__)
 static __inline__ unsigned long long int arch_get_ticks(void)
 {
 	unsigned long long int x;
 	asm volatile ("rdtsc" : "=A" (x));
 	return x;
+}
+#elif defined(__x86_64__)
+static __inline__ unsigned long long int arch_get_ticks(void)
+{
+	unsigned long a, d;
+	asm volatile("rdtsc" : "=a" (a), "=d" (d));
+	return a | (d<<32);
 }
 #elif defined(__sun)
 static __inline__ unsigned long long int arch_get_ticks(void)
@@ -617,27 +624,58 @@ void dlock_dump()
 
 }
 
-//TODO: does not work properly
-void dlock_gen_dot()
+static void print_dot_tree(struct dlock_node *n, int depth, int graph, char **labels)
 {
-#if 0
-	int i, j;
+	int i=0;
+	/* special case, skip root */
+	if (depth) {
+		char *name = get_lock_desc(n->lock)->name;
+		char *locked = "";
+		char label[MAX_LOCK_NAME];
+
+		/* display that the lock is held */
+		if (n->unlock_time == 0)
+			locked = " (locked)";
+
+		if (depth > 1) {
+			char *parent = get_lock_desc(n->parent->lock)->name;
+			fprintf(dlock_log_file, "\"%s%d\" -> \"%s%d\";\n", parent, graph, name, graph);
+		} else if (n->nb_children == 0) {
+			fprintf(dlock_log_file, "\"%s%d\";\n", name, graph);
+		}
+		while (labels[i++]);
+		sprintf(label, "\"%s%d\"[label = \"%s%s\"]", name, graph, name, locked);
+		labels[i-1] = strdup(label);
+	}
+	for (i = 0; i < n->nb_children; i++) {
+		print_dot_tree(n->children[i], depth+1, graph, labels);
+	}
+}
+
+/**
+ * @brief Dumps dot code to the log stream (see http://www.graphviz.org)
+ *
+ **/
+void dlock_dump_dot()
+{
+	int i,j;
 	fprintf(dlock_log_file, "digraph g {\n");
 	for (i = 0; i < index_tsequences; i++) {
-		int first = 1;
-		for (j = 0; j < tsequences[i].length; j++) {
-			if (tsequences[i].seq[j].action == LOCKED) {
-				char *name =
-					get_lock_desc(sequences[i].seq[j].mutex)->name;
-				if (first)
-					first = 0;
-				else
-					fprintf(dlock_log_file, "-> ");
-				fprintf(dlock_log_file, "\"%s\" ", name);	
-			}
+		char *labels[MAX_KNOWN_LOCKS];
+
+		memset(labels, 0, sizeof(labels));
+
+		fprintf(dlock_log_file, "subgraph cluster_%d {\n", i);
+		fprintf(dlock_log_file, "color=black;\n");
+		print_dot_tree(tsequences[i].root, 0, i, labels);
+
+		j = 0;
+		while (labels[j]) {
+			fprintf(dlock_log_file, "%s\n", labels[j]);
+			free(labels[j]);
+			j++;
 		}
-		fprintf(dlock_log_file, ";\n");
+		fprintf(dlock_log_file, "}\n");
 	}
 	fprintf(dlock_log_file, "}\n");
-#endif
 }

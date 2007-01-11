@@ -104,5 +104,6 @@ int main()
 	pthread_join(t, NULL);
 
 	dlock_dump();
+	dlock_dump_dot();
 	return 1;
 }
