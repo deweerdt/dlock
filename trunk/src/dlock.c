@@ -541,7 +541,7 @@ static struct lock_desc *get_lock_desc(dlock_lock_t *lock)
 	}
 	sprintf(buf, "%p", lock);
 	__dlock_lock_init(lock, NULL, buf, "?", 0, UNKNOWN);
-	ret = &lock_descs[ld_index];
+	ret = &lock_descs[ld_index - 1];
 	o_pthread_mutex_unlock(&descs_mutex);
 
 	return ret;
